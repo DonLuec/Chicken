@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Farm Manager</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#777777">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Farm Manager">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="apple-touch-icon" href="icon-192.png">
+
+<style>
+body {
+    font-family: Arial, sans-serif;
+    max-width: 1000px;
+    margin: auto;
+    background: #f5f5f5;
+    padding: 14px;
+}
+
+h1 { text-align: center; }
+
+.tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 15px;
+}
+
+.tab {
+    padding: 10px 14px;
+    background: #ddd;
+    border-radius: 8px;
+    cursor: pointer;
+    user-select: none;
+}
+
+.tab.active {
+    background: #777;
+    color: white;
+    font-weight: bold;
+}
+
+.section { display: none; }
+.section.active { display: block; }
+
+input, select, button {
+    padding: 10px;
+    margin: 5px 0;
+    width: 100%;
+    box-sizing: border-box;
+    font-size: 16px;
+}
+
+button { cursor: pointer; }
+
+.card {
+    background: white;
+    padding: 12px;
+    margin-top: 10px;
+    border-radius: 10px;
+}
+
+.tree {
+    background: white;
+    padding: 12px;
+    margin-top: 5px;
+    border-radius: 10px;
+    border-left: 4px solid #999;
+}
+
+.box {
+    display: inline-block;
+    padding: 8px;
+    margin: 5px;
+    background: #ddd;
+    border-radius: 6px;
+}
+
+.stats {
+    background: #fff;
+    padding: 12px;
+    border-radius: 10px;
+    margin-bottom: 15px;
+}
+
+.small {
+    color: #666;
+    font-size: 0.9em;
+}
+
+hr { margin: 20px 0; }
+</style>
+</head>
+
+<body>
+
+<h1>🐔 Farm Manager</h1>
+
+<div id="tabs" class="tabs"></div>
+
+<div id="stats" class="stats"></div>
+
+<div id="animals" class="section active">
+<h3>Scharen</h3>
+<input id="newGroup" placeholder="Neue Schar, z.B. Hamburger, Marans, Allgemein">
+<button onclick="addGroup()">Schar hinzufügen</button>
+
+<h3>Neues Tier</h3>
+<select id="group"></select>
+
+<select id="type">
+<option>Huhn</option>
+<option>Pute</option>
+</select>
+
+<select id="gender">
+<option value="Unbekannt">Geschlecht unbekannt</option>
+<option value="Henne">Henne</option>
+<option value="Hahn">Hahn</option>
+<option value="Pute weiblich">Pute weiblich</option>
+<option value="Pute männlich">Pute männlich</option>
+</select>
+
+<input id="ring" placeholder="Ringnummer / ID">
+<input id="rasse" placeholder="Rasse">
+<input id="datum" type="date">
+
+<select id="motherSelect"><option value="">Mutter unbekannt</option></select>
+<select id="fatherSelect"><option value="">Vater unbekannt</option></select>
+
+<button onclick="addAnimal()">Tier hinzufügen</button>
+
+<hr>
+
+<h3>Alle Tiere nach Scharen</h3>
+<div id="liste"></div>
+</div>
+
+<div id="eggs" class="section">
+<h3>🥚 Eierverwaltung</h3>
+<button onclick="addGeneralEgg()">🥚 Allgemeines Ei hinzufügen</button>
+<button onclick="sellEggs()">💰 Eier / BE verkaufen</button>
+<button onclick="editEggGroup()">✏️ Bestand einer Schar korrigieren</button>
+<button onclick="resetEggs()">🔄 Eier komplett zurücksetzen</button>
+<hr>
+<div id="eggInfo"></div>
+</div>
+
+<div id="finance" class="section">
+<h3>💰 Finanzen</h3>
+<select id="financeType">
+<option value="cost">Ausgabe</option>
+<option value="income">Einnahme</option>
+</select>
+<input id="costName" placeholder="Beschreibung, z.B. Futter, Streu, Eierverkauf">
+<input id="costValue" type="number" placeholder="€">
+<button onclick="addFinance()">Eintrag speichern</button>
+<button onclick="showFinanceHistory()">📜 Finanz-Historie anzeigen</button>
+<button onclick="resetFinance()">🔄 Finanzen zurücksetzen</button>
+</div>
+
+<script>
+let animals = JSON.parse(localStorage.getItem("animals")) || [];
+let costs = JSON.parse(localStorage.getItem("costs")) || [];
+let groups = JSON.parse(localStorage.getItem("groups")) || [];
+let eggStock = Number(localStorage.getItem("eggStock")) || 0;
+let eggGroups = JSON.parse(localStorage.getItem("eggGroups")) || {};
+let activeTree = null;
+let currentTab = localStorage.getItem("currentTab") || "animals";
+
+function normalizeEggGroups() {
+    for (let g in eggGroups) {
+        if (typeof eggGroups[g] === "number") {
+            eggGroups[g] = { eggs: eggGroups[g], be: 0 };
+        }
+        if (!eggGroups[g].eggs) eggGroups[g].eggs = 0;
+        if (!eggGroups[g].be) eggGroups[g].be = 0;
+    }
+}
+normalizeEggGroups();
+
+function save() {
+    localStorage.setItem("animals", JSON.stringify(animals));
+    localStorage.setItem("costs", JSON.stringify(costs));
+    localStorage.setItem("groups", JSON.stringify(groups));
+    localStorage.setItem("eggStock", eggStock);
+    localStorage.setItem("eggGroups", JSON.stringify(eggGroups));
+    localStorage.setItem("currentTab", currentTab);
+}
+
+function showTab(tab) {
+    currentTab = tab;
+    activeTree = null;
+    save();
+    render();
+}
+
+function renderTabs() {
+    let tabs = document.getElementById("tabs");
+    tabs.innerHTML = "";
+    let baseTabs = [
+        { id: "animals", label: "🐔 Tiere" },
+        { id: "eggs", label: "🥚 Eier" },
+        { id: "finance", label: "💰 Finanzen" }
+    ];
+    baseTabs.forEach(tab => {
+        tabs.innerHTML += `<div class="tab ${currentTab === tab.id ? "active" : ""}" onclick="showTab('${tab.id}')">${tab.label}</div>`;
+    });
+    groups.forEach(group => {
+        tabs.innerHTML += `<div class="tab ${currentTab === group ? "active" : ""}" onclick="showTab('${group}')">🐔 ${group}</div>`;
+    });
+}
+
+function showOnlyCurrentSection() {
+    document.querySelectorAll(".section").forEach(section => section.classList.remove("active"));
+    if (currentTab === "animals" || currentTab === "eggs" || currentTab === "finance") {
+        document.getElementById(currentTab).classList.add("active");
+    } else {
+        document.getElementById("animals").classList.add("active");
+    }
+}
+
+function addGroup() {
+    let groupName = document.getElementById("newGroup").value.trim();
+    if (!groupName) return alert("Bitte Scharnamen eingeben.");
+    if (groups.includes(groupName)) return alert("Diese Schar gibt es schon.");
+    groups.push(groupName);
+    if (!eggGroups[groupName]) eggGroups[groupName] = { eggs: 0, be: 0 };
+    document.getElementById("newGroup").value = "";
+    currentTab = groupName;
+    save(); render();
+}
+
+function addAnimal() {
+    let ring = document.getElementById("ring").value.trim();
+    if (!ring) return alert("Ringnummer / ID fehlt.");
+    if (animals.some(a => a.ring === ring)) return alert("Diese Ringnummer / ID gibt es schon.");
+    let group = document.getElementById("group").value || "Allgemein";
+    if (!groups.includes(group)) groups.push(group);
+    if (!eggGroups[group]) eggGroups[group] = { eggs: 0, be: 0 };
+    animals.push({
+        type: document.getElementById("type").value,
+        group,
+        gender: document.getElementById("gender").value,
+        ring,
+        rasse: document.getElementById("rasse").value.trim(),
+        datum: document.getElementById("datum").value,
+        mother: document.getElementById("motherSelect").value,
+        father: document.getElementById("fatherSelect").value,
+        eggs: 0,
+        be: 0,
+        sold: false,
+        price: 0,
+        soldDate: ""
+    });
+    document.getElementById("ring").value = "";
+    document.getElementById("rasse").value = "";
+    document.getElementById("datum").value = "";
+    currentTab = group;
+    save(); render();
+}
+
+function sellAnimal(index) {
+    let price = Number(prompt("Verkaufspreis €:"));
+    if (!price) return;
+    animals[index].sold = true;
+    animals[index].price = price;
+    animals[index].soldDate = new Date().toLocaleDateString();
+    costs.push({ name: "Tier verkauft: " + animals[index].ring, value: price, type: "income" });
+    save(); render();
+}
+
+function deleteAnimal(index) {
+    if (!confirm("Tier wirklich löschen?")) return;
+    animals.splice(index, 1);
+    save(); render();
+}
+
+function changeGender(index) {
+    let value = prompt("Geschlecht: Henne / Hahn / Unbekannt / Pute weiblich / Pute männlich", animals[index].gender || "Unbekannt");
+    if (!value) return;
+    animals[index].gender = value;
+    save(); render();
+}
+
+function ensureEggGroup(group) {
+    if (!eggGroups[group]) eggGroups[group] = { eggs: 0, be: 0 };
+    if (!eggGroups[group].eggs) eggGroups[group].eggs = 0;
+    if (!eggGroups[group].be) eggGroups[group].be = 0;
+}
+
+function addEgg(index) {
+    let group = animals[index].group || "Allgemein";
+    ensureEggGroup(group);
+    eggGroups[group].eggs++;
+    eggStock++;
+    animals[index].eggs = (animals[index].eggs || 0) + 1;
+    save(); render();
+}
+
+function removeEgg(index) {
+    let group = animals[index].group || "Allgemein";
+    ensureEggGroup(group);
+    if ((animals[index].eggs || 0) <= 0 || eggGroups[group].eggs <= 0 || eggStock <= 0) return;
+    animals[index].eggs--;
+    eggGroups[group].eggs--;
+    eggStock--;
+    save(); render();
+}
+
+function addBE(index) {
+    let group = animals[index].group || "Allgemein";
+    ensureEggGroup(group);
+    eggGroups[group].be++;
+    animals[index].be = (animals[index].be || 0) + 1;
+    save(); render();
+}
+
+function removeBE(index) {
+    let group = animals[index].group || "Allgemein";
+    ensureEggGroup(group);
+    if ((animals[index].be || 0) <= 0 || eggGroups[group].be <= 0) return;
+    animals[index].be--;
+    eggGroups[group].be--;
+    save(); render();
+}
+
+function addGeneralEgg() {
+    ensureEggGroup("Allgemein");
+    if (!groups.includes("Allgemein")) groups.push("Allgemein");
+    eggGroups["Allgemein"].eggs++;
+    eggStock++;
+    save(); render();
+}
+
+function sellEggs() {
+    let kind = prompt("Was verkaufen? Bitte eingeben: eier oder be", "eier");
+    if (!kind) return;
+    kind = kind.toLowerCase().trim();
+    if (kind !== "eier" && kind !== "be") return alert("Bitte nur 'eier' oder 'be' eingeben.");
+    let group = prompt("Aus welcher Schar? Leer lassen = automatisch aus allen Scharen.");
+    let amount = Number(prompt("Menge:"));
+    let price = Number(prompt("Gesamtpreis €:"));
+    if (!amount || amount <= 0 || !price || price <= 0) return;
+    if (group) {
+        if (!eggGroups[group]) return alert("Diese Schar gibt es im Eierbestand nicht.");
+        if (eggGroups[group][kind] < amount) return alert("In dieser Schar sind nicht genug Eier/BE vorhanden.");
+        eggGroups[group][kind] -= amount;
+        if (kind === "eier") eggStock -= amount;
+    } else {
+        let remaining = amount;
+        for (let g in eggGroups) {
+            ensureEggGroup(g);
+            let take = Math.min(eggGroups[g][kind], remaining);
+            eggGroups[g][kind] -= take;
+            if (kind === "eier") eggStock -= take;
+            remaining -= take;
+            if (remaining <= 0) break;
+        }
+        if (remaining > 0) return alert("Nicht genug Bestand vorhanden.");
+    }
+    costs.push({ name: kind === "be" ? "Bruteier verkauft" : "Eier verkauft", value: price, type: "income" });
+    save(); render();
+}
+
+function editEggGroup() {
+    let group = prompt("Welche Schar korrigieren?");
+    if (!group || !eggGroups[group]) return alert("Schar nicht gefunden.");
+    ensureEggGroup(group);
+    let newEggs = Number(prompt("Neuer Wert normale Eier:", eggGroups[group].eggs));
+    let newBE = Number(prompt("Neuer Wert BE / Bruteier:", eggGroups[group].be));
+    if (newEggs < 0 || newBE < 0) return alert("Negative Werte sind nicht erlaubt.");
+    let diff = newEggs - eggGroups[group].eggs;
+    eggGroups[group].eggs = newEggs;
+    eggGroups[group].be = newBE;
+    eggStock += diff;
+    if (eggStock < 0) eggStock = 0;
+    save(); render();
+}
+
+function resetEggs() {
+    if (!confirm("Alle Eier und BE wirklich zurücksetzen?")) return;
+    eggStock = 0;
+    eggGroups = {};
+    groups.forEach(g => eggGroups[g] = { eggs: 0, be: 0 });
+    animals.forEach(a => { a.eggs = 0; a.be = 0; });
+    save(); render();
+}
+
+function addFinance() {
+    let name = document.getElementById("costName").value.trim();
+    let value = Number(document.getElementById("costValue").value);
+    let type = document.getElementById("financeType").value;
+    if (!name) return alert("Beschreibung fehlt.");
+    if (!value || value <= 0) return alert("Betrag fehlt oder ist ungültig.");
+    costs.push({ name, value, type });
+    document.getElementById("costName").value = "";
+    document.getElementById("costValue").value = "";
+    save(); render();
+}
+
+function showFinanceHistory() {
+    if (costs.length === 0) return alert("Noch keine Finanz-Einträge.");
+    let text = "Finanz-Historie:\n\n";
+    costs.forEach((c, i) => {
+        text += `${i + 1}. ${c.type === "income" ? "Einnahme" : "Ausgabe"}: ${c.name} → ${c.value} €\n`;
+    });
+    alert(text);
+}
+
+function resetFinance() {
+    if (!confirm("Alle Finanzdaten löschen?")) return;
+    costs = [];
+    animals.forEach(a => { a.sold = false; a.price = 0; a.soldDate = ""; });
+    save(); render();
+}
+
+function toggleTree(ring) {
+    activeTree = activeTree === ring ? null : ring;
+    render();
+}
+
+function renderStats() {
+    let income = costs.filter(c => c.type === "income").reduce((sum, c) => sum + c.value, 0);
+    let cost = costs.filter(c => c.type === "cost").reduce((sum, c) => sum + c.value, 0);
+    let totalBE = 0;
+    for (let g in eggGroups) { ensureEggGroup(g); totalBE += eggGroups[g].be; }
+    document.getElementById("stats").innerHTML = `
+        💰 Einnahmen: ${income.toFixed(2)} €<br>
+        💸 Kosten: ${cost.toFixed(2)} €<br>
+        📊 Gewinn: ${(income - cost).toFixed(2)} €<br>
+        🥚 normale Eier Bestand: ${eggStock}<br>
+        🐣 BE / Bruteier Bestand: ${totalBE}
+    `;
+}
+
+function renderFormDropdowns() {
+    let groupSelect = document.getElementById("group");
+    groupSelect.innerHTML = "";
+    if (groups.length === 0) groupSelect.innerHTML = `<option value="Allgemein">Allgemein</option>`;
+    else groups.forEach(g => groupSelect.innerHTML += `<option value="${g}">${g}</option>`);
+    let motherSelect = document.getElementById("motherSelect");
+    let fatherSelect = document.getElementById("fatherSelect");
+    motherSelect.innerHTML = `<option value="">Mutter unbekannt</option>`;
+    fatherSelect.innerHTML = `<option value="">Vater unbekannt</option>`;
+    animals.forEach(a => {
+        motherSelect.innerHTML += `<option value="${a.ring}">${a.ring} (${a.rasse || "ohne Rasse"})</option>`;
+        fatherSelect.innerHTML += `<option value="${a.ring}">${a.ring} (${a.rasse || "ohne Rasse"})</option>`;
+    });
+}
+
+function animalCard(a, index) {
+    return `
+        <div class="card">
+            <b>${a.type}</b> | <b>${a.ring}</b> ${a.rasse ? "(" + a.rasse + ")" : ""}<br>
+            <span class="small">
+                Geschlecht: ${a.gender || "Unbekannt"}<br>
+                Schlupfdatum: ${a.datum || "-"}<br>
+                Schar: ${a.group || "Allgemein"}<br>
+                Mutter: ${a.mother || "Unbekannt"}<br>
+                Vater: ${a.father || "Unbekannt"}<br>
+                Eier: ${a.eggs || 0} | BE: ${a.be || 0}<br>
+                Verkauf: ${a.sold ? (a.price + " € am " + (a.soldDate || "-")) : "Nein"}
+            </span>
+            <button onclick="addEgg(${index})">🥚 + Ei</button>
+            <button onclick="removeEgg(${index})">➖ Ei</button>
+            <button onclick="addBE(${index})">🐣 + BE</button>
+            <button onclick="removeBE(${index})">➖ BE</button>
+            <button onclick="toggleTree('${a.ring}')">🌳 Stammbaum öffnen/schließen</button>
+            <button onclick="changeGender(${index})">Geschlecht ändern</button>
+            <button onclick="sellAnimal(${index})">💰 Tier verkaufen</button>
+            <button onclick="deleteAnimal(${index})">🗑 Tier löschen</button>
+        </div>
+    `;
+}
+
+function treeBlock(a) {
+    let mother = animals.find(x => x.ring === a.mother);
+    let father = animals.find(x => x.ring === a.father);
+    let children = animals.filter(x => x.mother === a.ring || x.father === a.ring);
+    return `
+        <div class="tree">
+            <h4>🌳 Stammbaum ${a.ring}</h4>
+            <div class="box">Vater<br>${father ? father.ring : "Unbekannt"}</div>
+            <div class="box"><b>${a.ring}</b></div>
+            <div class="box">Mutter<br>${mother ? mother.ring : "Unbekannt"}</div>
+            <hr>
+            <b>Nachkommen:</b><br>
+            ${children.length === 0 ? "Keine" : children.map(c => `<div class="box">${c.ring}</div>`).join("")}
+        </div>
+    `;
+}
+
+function renderAnimalList() {
+    let list = document.getElementById("liste");
+    list.innerHTML = "";
+    if (currentTab === "animals") {
+        if (groups.length === 0 && animals.length === 0) {
+            list.innerHTML = `<p class="small">Noch keine Schar und keine Tiere angelegt.</p>`;
+            return;
+        }
+        groups.forEach(group => {
+            list.innerHTML += `<h3>🐔 ${group}</h3>`;
+            let groupAnimals = animals.filter(a => a.group === group);
+            if (groupAnimals.length === 0) list.innerHTML += `<p class="small">Noch keine Tiere in dieser Schar.</p>`;
+            groupAnimals.forEach(a => {
+                let index = animals.indexOf(a);
+                list.innerHTML += animalCard(a, index);
+                if (activeTree === a.ring) list.innerHTML += treeBlock(a);
+            });
+        });
+        let withoutGroup = animals.filter(a => !groups.includes(a.group));
+        if (withoutGroup.length > 0) {
+            list.innerHTML += `<h3>🐔 Ohne passende Schar</h3>`;
+            withoutGroup.forEach(a => {
+                let index = animals.indexOf(a);
+                list.innerHTML += animalCard(a, index);
+                if (activeTree === a.ring) list.innerHTML += treeBlock(a);
+            });
+        }
+    } else if (groups.includes(currentTab)) {
+        list.innerHTML += `<h2>🐔 ${currentTab}</h2>`;
+        let groupAnimals = animals.filter(a => a.group === currentTab);
+        if (groupAnimals.length === 0) list.innerHTML += `<p class="small">Noch keine Tiere in dieser Schar.</p>`;
+        groupAnimals.forEach(a => {
+            let index = animals.indexOf(a);
+            list.innerHTML += animalCard(a, index);
+            if (activeTree === a.ring) list.innerHTML += treeBlock(a);
+        });
+    }
+}
+
+function renderEggInfo() {
+    let eggInfo = document.getElementById("eggInfo");
+    let html = `<h3>Bestand nach Schar</h3>`;
+    if (Object.keys(eggGroups).length === 0) html += `<p class="small">Noch keine Eier erfasst.</p>`;
+    for (let g in eggGroups) {
+        ensureEggGroup(g);
+        html += `<div class="card"><b>${g}</b><br>🥚 Eier: ${eggGroups[g].eggs}<br>🐣 BE / Bruteier: ${eggGroups[g].be}</div>`;
+    }
+    eggInfo.innerHTML = html;
+}
+
+function render() {
+    normalizeEggGroups();
+    renderTabs();
+    showOnlyCurrentSection();
+    renderStats();
+    renderFormDropdowns();
+    renderAnimalList();
+    renderEggInfo();
+}
+
+if ("serviceWorker" in navigator) {
+    window.addEventListener("load", () => {
+        navigator.serviceWorker.register("service-worker.js").catch(() => {});
+    });
+}
+
+render();
+</script>
+
+</body>
+</html>
